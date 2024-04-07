@@ -1,25 +1,209 @@
 <!-- Do NOT knit this document. It is part of a larger document. Instead knit the main document (my-apa-formatted-article) -->
 
-# Introduction
-How humans managed to survive so far remains one of the central questions of the social sciences. ... Here are some references [e.g., @bradlow-bent2008; @nygaard1994; @Perrachione2016; @sidaras2009; @wade2007; @weil2001a; @xie2021jep]. And here is a figure references to Figure \@ref(fig:blub-results). 
+# Pigeons go fly!
 
-(ref:blub-results) You should use a verbose caption that is self-contained and clearly states the main points of the figure. When you look at the R markdown for this document, note that the caption is *outside* of the R-chunk but linked to the R-chunk through a reference in the chunk option fig.cap. Notice also how the reference in the main text uses the label fig:label, whereas the caption and the R chunk option fig.cap that generates the figure use the label ref:label. Finally, the R-chunk itself is called label. Make sure to follow this format in order to make sure that your figure references and captions knit correctly. This example also demonstrates how you can use a globally defined base width and height for all figures. In this example, the base height is multiplied by two because we're faceting the data into two rows.
+```{r make-fake-data}
+# start and endpoints
+start <- c(0, 0)
+finish <- c(1, 1)
+distance <- sum((finish - start)^2)^.5
 
-```{r blub-results, fig.width = base.width * 1, fig.height= base.height * 2, fig.cap="(ref:blub-results)", warning=FALSE}
-cars %>%
-  mutate(z = rbinom(nrow(.), 1, .5)) %>%
-  ggplot(aes(x = speed, y = dist)) +
-  geom_point() +
-  geom_smooth() +
-  facet_grid(z ~ .)
+# weights (theta) and precision (kappa)
+theta <- c(goal = 0.19, social = 0.18, memory = 0.31)
+theta["continuity"] <- 1 - sum(theta)
+kappa <- c(goal = 1.54, social = 2.18, memory = 0.85, continuity = 8.69)
+
+n_pigeon <- 1
+n_generation <- 1
+n_flight <- 12
+n_time <- 150
+n_landmark <- 10
+
+# For now: constant speed within and across pigeons
+velocity <- sum((finish - start)^2)^.5 / n_time * 5
+# When have pigeons arrived?
+arrived_when.resolution <- distance / 50
+
+d <- 
+  crossing(
+    pigeon = 1:n_pigeon, generation = 1:n_generation, flight = 1:n_flight, time = 1:n_time, 
+    position.x = start[1], position.y = start[2], velocity = velocity,
+    position.partner.x = start[1], position.partner.y = start[2], velocity.partner = velocity,
+    goal.x = finish[1], goal.y = finish[2]) %>%
+  # initialize with random headings
+  mutate(
+    heading = runif(1, -pi, pi),
+    heading.partner = runif(1, -pi, pi),
+    next_heading = runif(1, -pi, pi),
+    next_heading.partner = runif(1, -pi, pi))
+
+d.landmarks <- 
+  tibble(ID = 1:n_landmark) %>%
+  mutate(
+    x = runif(n(), -.1, 1.5),
+    y = runif(n(), -.1, 1.5))
+
+d.sim <- tibble()
+for (p in 1:n_pigeon) { # pigeon
+  for (g in 1:n_generation) { # generation
+    for (f in 1:n_flight) { # flight within generation
+      message("Processing pigeon ", p, " in generation ",  g, " on flight ", f)
+
+      for (t in 1:n_time) { # time within flight
+        d.sim %<>%
+          bind_rows(
+            within(
+              d[d$pigeon == p & d$generation == g & d$flight == f & d$time == t,],
+              {   
+                if (time != 1) {
+                  # Get new position and heading given heading decision and velocity from previous time point
+                  heading = d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$next_heading
+                  position.x = d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$position.x + 
+                    d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$velocity * cos(heading)
+                  position.y = d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$position.y + 
+                    d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$velocity * sin(heading)
+                  
+                  heading.partner = d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$next_heading.partner
+                  position.partner.x = d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$position.partner.x + 
+                    d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$velocity.partner * cos(heading.partner)
+                  position.partner.y = d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$position.partner.y + 
+                    d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$velocity.partner * sin(heading.partner)
+                }
+                # Check whether pigeon has arrived at goal
+                distance_to_goal = sqrt((goal.x - position.x)^2 + (goal.y - position.y)^2)
+                distance_to_goal.partner = sqrt((goal.x - position.partner.x)^2 + (goal.y - position.partner.y)^2)
+                if (distance_to_goal < arrived_when.resolution) {
+                  velocity = 0
+                }
+                if (distance_to_goal.partner < arrived_when.resolution) {
+                  velocity.partner = 0
+                }
+                
+                # Get plans of pigeon for next time step
+                # Get goal-dependent target heading
+                mu_goal = atan2(goal.y - position.y, goal.x - position.x)
+                
+                # Estimate partner's next position and get other-dependent target heading
+                position.expected_partner.x = position.partner.x + velocity.partner * cos(heading.partner)
+                position.expected_partner.y = position.partner.y + velocity.partner * sin(heading.partner)
+                mu_other = atan2(position.expected_partner.y - position.y, position.expected_partner.x - position.x)
+                
+                # Find closest landmark and get landmark-dependent target heading
+                position.closest_landmark.x = d.landmarks$x[which.min((d.landmarks$x - position.x)^2 + (d.landmarks$y - position.y)^2)]
+                position.closest_landmark.y = d.landmarks$y[which.min((d.landmarks$x - position.x)^2 + (d.landmarks$y - position.y)^2)]
+                mu_memory = atan2(position.closest_landmark.y - position.y, position.closest_landmark.x - position.x)
+
+                # Draw random samples from each of the von Mises distribution
+                a_goal = rvon_mises(1, mu = mu_goal, kappa = kappa["goal"])
+                a_other = rvon_mises(1, mu = mu_other, kappa = kappa["social"])
+                a_memory = rvon_mises(1, mu = mu_memory, kappa = kappa["memory"])
+                a_continuity = rvon_mises(1, mu = heading, kappa = kappa["continuity"])
+                
+                # Determine next heading
+                next_heading = 
+                  atan2(
+                    theta["goal"] * sin(a_goal) +
+                      theta["social"] * sin(a_other) +
+                      theta["memory"] * sin(a_memory) +
+                      theta["continuity"] * sin(a_continuity),
+                    theta["goal"] * cos(a_goal) +
+                      theta["social"] * cos(a_other) +
+                      theta["memory"] * cos(a_memory) +
+                      theta["continuity"] * cos(a_continuity))
+                
+                # Same for partner
+                mu_goal.partner = atan2(goal.y - position.partner.y, goal.x - position.partner.x)
+                position.expected.x = position.x + velocity * cos(heading)
+                position.expected.y = position.y + velocity * sin(heading)
+                mu_other.partner = atan2(position.expected.y - position.partner.y, position.expected.x - position.partner.x)
+                position.partner.closest_landmark.x = d.landmarks$x[which.min((d.landmarks$x - position.partner.x)^2 + (d.landmarks$y - position.partner.y)^2)]
+                position.partner.closest_landmark.y = d.landmarks$y[which.min((d.landmarks$x - position.partner.x)^2 + (d.landmarks$y - position.partner.y)^2)]
+                mu_memory.partner = atan2(position.partner.closest_landmark.y - position.partner.y, position.partner.closest_landmark.x - position.partner.x)
+                a_goal.partner = rvon_mises(1, mu = mu_goal.partner, kappa = kappa["goal"])
+                a_other.partner = rvon_mises(1, mu = mu_other.partner, kappa = kappa["social"])
+                a_memory.partner = rvon_mises(1, mu = mu_memory.partner, kappa = kappa["memory"])
+                a_continuity.partner = rvon_mises(1, mu = heading.partner, kappa = kappa["continuity"])
+                next_heading.partner = 
+                  atan2(
+                    theta["goal"] * sin(a_goal.partner) +
+                      theta["social"] * sin(a_other.partner) +
+                      theta["memory"] * sin(a_memory.partner) +
+                      theta["continuity"] * sin(a_continuity.partner),
+                    theta["goal"] * cos(a_goal.partner) +
+                      theta["social"] * cos(a_other.partner) +
+                      theta["memory"] * cos(a_memory.partner) +
+                      theta["continuity"] * cos(a_continuity.partner))
+                
+                # Remove what we don't need
+              }))
+      }
+    }
+  }
+}
+``` 
+
+```{r plot-data}
+d.sim %>%
+  ggplot() +
+  geom_path(aes(position.x, position.y, group = flight, color = as.factor(flight)), linetype = 1,) +
+  geom_path(aes(position.partner.x, position.partner.y, group = flight, color = as.factor(flight)), linetype = 2) +
+  annotate("point", x = start[1], y = start[2], color = "green", shape = 1, size = 2) +
+  annotate("point", x = finish[1], y = finish[2], color = "red", shape = 1, size = 2) +
+  geom_point(data = d.landmarks, aes(x, y), color = "black", shape = 4) +
+  scale_color_viridis_d("Flight") +
+  coord_fixed() +
+  facet_wrap(flight ~ pigeon) +
+  theme_minimal()
+
+library(gganimate)
+d.sim %>%
+  ggplot() +
+  geom_point(aes(position.x, position.y, group = flight, color = as.factor(flight)), shape = 2, size = .8) +
+  geom_point(aes(position.partner.x, position.partner.y, group = flight, color = as.factor(flight)), shape = 3, size = .8) +
+  annotate("point", x = start[1], y = start[2], color = "green", shape = 1, size = 2) +
+  annotate("point", x = finish[1], y = finish[2], color = "red", shape = 1, size = 2) +
+  geom_point(data = d.landmarks, aes(x, y), color = "black", shape = 4) +
+  scale_color_viridis_d("Flight") +
+  coord_fixed() +
+  facet_wrap(flight ~ pigeon) +
+  theme_minimal() +
+  transition_states(time) +
+  shadow_wake(wake_length = 1) +
+  labs(title = "Time: {closest_state}")
 ```
 
-You can also make phonetic symbols, e.g., for the sound category [`r linguisticsdown::cond_cmpl("ʃ")`] [as in *ship*, Newman et al., -@newman2001]. And you can type equations like Equation \@ref(eq:posterior-probability-lapse), which describes Wichmann and Hill's psychometric model with parameters $\alpha$ and $\beta$ and more.  
 
-\begin{equation}\label{eq:posterior-probability-lapse}
-p(category | input) = (1 - \lambda) \frac{\mathcal{N}\!\left( input | \mu_c, \Sigma_c \right) \pi}{\Sigma_i \mathcal{N}\!\left( input | \mu_{c_i}, \Sigma_{c_i} \right) \pi_i} + \lambda \frac{\pi}{\Sigma_i \pi_i}
-\end{equation}
+```{r bmm-priors}
+my_priors <- 
+  c(
+    prior(student_t(3, 0, 2.5), b, dpar = mu1),
+    prior(student_t(3, 0, 2.5), b, dpar = mu2),
+    prior(student_t(3, 0, 2.5), b, dpar = mu3),
+    prior(student_t(3, 0, 2.5), b, dpar = mu4),
+    prior(student_t(3, 0, 2.5), b, dpar = kappa1),
+    prior(student_t(3, 0, 2.5), b, dpar = kappa2),
+    prior(student_t(3, 0, 2.5), b, dpar = kappa3),
+    prior(student_t(3, 0, 2.5), b, dpar = kappa4))
+```
 
-<!-- This is a markdown comment that will NOT show when you knit the document.  -->
+```{r bmm-fit}
+m <- 
+  brm(
+    formula = 
+      bf(y ~ 1),
+    data = d,
+    family = 
+      mixture(
+        von_mises(link = "tan_half", link_kappa = "log"), 
+        nmix = 4,
+        order = TRUE),
+    sample_prior = "yes",
+    chains = 4, warm-up = 1000, iter = 2000,
+    cores = 4, threads = threading(2))
+```
 
-All data and code for this article can be downloaded from[https://osf.io/q7gjp/](OSF). This article is written in R markdown, allowing readers to replicate our analyses with the press of a button using freely available software [R, @R; @RStudio], while changing any of the parameters of our models. Readers can revisit any of the assumptions we make---for example, by substituting alternative models of linguistic representations. The supplementary information (SI, \@ref(sec:SI-software)) lists the software/libraries required to compile this document. Beyond our immediate goals here, we hope that this can be helpful to researchers who are interested in developing more informative experimental designs, and to facilitate the interpretation of existing results [see also @tan2021]. 
+```{r bmm-results}
+summary(m)
+pp_check(m)
+```
+
