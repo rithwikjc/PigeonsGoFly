@@ -142,9 +142,6 @@ INCLUDE_TODO = T            # switch on/off to get to do list.
 ```{r, child="section-introduction.Rmd"}
 ```
 
-```{r, child="section-general-discussion.Rmd"}
-```
-
 ```{r, child="section-references.Rmd"}
 ```
 
