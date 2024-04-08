@@ -9,7 +9,7 @@ start <- c(0, 0)
 # weights (theta) and precision (kappa)
 theta <- c(goal = 0.19, social = 0.18, memory = 0.31)
 theta["continuity"] <- 1 - sum(theta)
-kappa <- c(goal = 1.54, social = 2.18, memory = 0.85, continuity = 8.69)
+kappa <- c(goal = 1.54, social = 2.18, memory = 0, continuity = 8.69)
 
 n_experiment <- 1
 n_pigeon <- 1
@@ -95,11 +95,22 @@ for (e in 1:n_experiment) { # experiments (different goal locations)
                   mu_other = atan2(position.expected_partner.y - position.y, position.expected_partner.x - position.x)
                   
                   # Find closest landmark and get landmark-dependent target heading
-                  # Need to implement more realistic memory + threshold distance at which landmarks can be seen
                   position.closest_landmark.x = d.landmarks$x[which.min((d.landmarks$x - position.x)^2 + (d.landmarks$y - position.y)^2)]
                   position.closest_landmark.y = d.landmarks$y[which.min((d.landmarks$x - position.x)^2 + (d.landmarks$y - position.y)^2)]
                   mu_memory = atan2(position.closest_landmark.y - position.y, position.closest_landmark.x - position.x)
                   
+                  # Need to implement more realistic memory + threshold distance at which landmarks can be seen
+                  # (with this memory model pigeons gets stuck on landmarks, when those landmarks are not conveniently
+                  # located in uniform steps along the start-to-goal line)
+                  kappa["memory"] <<- 
+                    case_when(
+                      time == 1 ~ 0,
+                      time == 2 ~ 0.27,
+                      time == 3 ~ 0.58,
+                      time == 4 ~ 1.11,
+                      time == 5 ~ 2.18,
+                      TRUE ~ 6.78)
+
                   # Draw random samples from each of the von Mises distribution
                   a_goal = rvon_mises(1, mu = mu_goal, kappa = kappa["goal"])
                   a_other = rvon_mises(1, mu = mu_other, kappa = kappa["social"])
