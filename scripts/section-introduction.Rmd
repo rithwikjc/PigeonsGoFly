@@ -89,6 +89,7 @@ for (p in 1:n_pigeon) { # pigeon
                 mu_other = atan2(position.expected_partner.y - position.y, position.expected_partner.x - position.x)
                 
                 # Find closest landmark and get landmark-dependent target heading
+                # Need to implement more realistic memory + threshold distance at which landmarks can be seen
                 position.closest_landmark.x = d.landmarks$x[which.min((d.landmarks$x - position.x)^2 + (d.landmarks$y - position.y)^2)]
                 position.closest_landmark.y = d.landmarks$y[which.min((d.landmarks$x - position.x)^2 + (d.landmarks$y - position.y)^2)]
                 mu_memory = atan2(position.closest_landmark.y - position.y, position.closest_landmark.x - position.x)
@@ -152,8 +153,7 @@ d.sim %>%
   geom_point(data = d.landmarks, aes(x, y), color = "black", shape = 4) +
   scale_color_viridis_d("Flight") +
   coord_fixed() +
-  facet_wrap(flight ~ pigeon) +
-  theme_minimal()
+  facet_wrap(flight ~ pigeon)
 
 library(gganimate)
 d.sim %>%
@@ -183,27 +183,96 @@ my_priors <-
     prior(student_t(3, 0, 2.5), b, dpar = kappa1),
     prior(student_t(3, 0, 2.5), b, dpar = kappa2),
     prior(student_t(3, 0, 2.5), b, dpar = kappa3),
-    prior(student_t(3, 0, 2.5), b, dpar = kappa4))
+    prior(student_t(3, 0, 2.5), b, dpar = kappa4),
+    prior(student_t(3, 0, 2.5), b, dpar = theta1),
+    prior(student_t(3, 0, 2.5), b, dpar = theta2),
+    prior(student_t(3, 0, 2.5), b, dpar = theta3))
 ```
 
 ```{r bmm-fit}
+# From https://stackoverflow.com/questions/32370485/convert-radians-to-degree-degree-to-radians
+rad2deg <- function(rad) {(rad * 180) / (pi)}
+deg2rad <- function(deg) {(deg * pi) / (180)}
+
+# Useful discourse: https://discourse.mc-stan.org/t/modelling-circular-data-with-brms-gaussian-or-von-mises/26980/5
 m <- 
   brm(
     formula = 
-      bf(y ~ 1),
-    data = d,
+      bf(
+        next_heading ~ 1,
+        # Goal direction
+        mu1 ~ 0 + offset(mu_goal),
+        kappa1 ~ 1, 
+        theta1 ~ 1,
+        # Social direction
+        mu2 ~ 0 + offset(mu_other),
+        kappa2 ~ 1,
+        theta2 ~ 1,
+        # Closest landmark direction
+        mu3 ~ 0 + offset(mu_memory),
+        kappa3 ~ 1,
+        theta3 ~ 1,
+        # Continuity direction
+        mu4 ~ 0 + offset(heading),
+        kappa4 ~ 1),
+    data = 
+      # TO DO: go to long format to use the data from both pigeons
+      d.sim,
     family = 
       mixture(
-        von_mises(link = "tan_half", link_kappa = "log"), 
+        # Discussion of tan_half link which constrains the von Mises distribution to the interval [-pi, pi]
+        # https://discourse.mc-stan.org/t/von-mises-distribution-tan-half-link/22182/2
+        # Here, we're using the identity link since next_heading is already in radians
+        von_mises(link = "identity", link_kappa = "log"), 
         nmix = 4,
-        order = TRUE),
+        order = "none"),
     sample_prior = "yes",
-    chains = 4, warm-up = 1000, iter = 2000,
+    chains = 4, warmup = 1000, iter = 2000, control = list(adapt_delta = .9),
     cores = 4, threads = threading(2))
+```
+
+```{r bmm-validation}
+pp_check(m, ndraws = 100) +
+  geom_vline(xintercept = deg2rad(45), linetype = 2)
 ```
 
 ```{r bmm-results}
 summary(m)
-pp_check(m)
+
+f <-
+  fixef(m) %>%
+  as_tibble() %>%
+  bind_rows(tibble(Estimate = 0)) %>%
+  mutate(
+    PredictorType = c(rep("kappa", 4), rep("theta", 4)),
+    Predictor = 
+      c(
+        paste("kappa", c("goal", "social", "memory", "continuity"), sep = "_"), 
+        paste("theta", c("goal", "social", "memory", "continuity"), sep = "_")),
+    across(
+      c(Estimate, Q2.5, Q97.5),
+      ~ ifelse(PredictorType == "kappa", exp(.x), .x))) 
+
+f[5:8, "Estimate"] <- pmlogis_last(f[5:7, ]$Estimate)
+f[5:8, "Q2.5"] <- pmlogis_last(f[5:7, ]$Q2.5)
+f[5:8, "Q97.5"] <- pmlogis_last(f[5:7, ]$Q97.5)
+f %<>% 
+  select(-Est.Error)
+
+f$Estimate
 ```
+
+
+
+Some more text here.
+
+
+
+
+
+
+
+
+
+
 

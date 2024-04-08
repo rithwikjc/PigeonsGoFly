@@ -23,6 +23,8 @@ library(rlang)              # quosures (in functions)
 library(assertthat)         # asserts (in functions)
 library(brms)
 
+library(fmx)                # for conversion of multinomial logodds
+
 # Functions ---------------------------------------------------------------------
 source("functions.R")
 
