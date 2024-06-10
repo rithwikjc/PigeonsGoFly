@@ -384,23 +384,59 @@ d.sim %>%
   labs(title = "Time: {closest_state}")
 ```
 
+# Load first flight data
+```{r load-first-flights}
+GOAL <- c(616070, 5738228)
+d <- tibble()
+
+for (f in list.files("../data/SpeedConvergence/", pattern = "*.csv", full.names = TRUE, recursive=TRUE)) {
+  d %<>% bind_rows(read_csv(f) %>% 
+                     mutate(flight = f))
+}
+
+d %<>% 
+  rename(x = easting, y=northing, t=time) %>%
+  select(x, y, t, flight) %>%
+  group_by(flight) %>%
+  mutate(
+    next_heading=atan2(lead(y, 1)-y, lead(x, 1)-x),
+    heading=lag(next_heading, 1),
+    mu_goal=atan2(GOAL[2]-y, GOAL[1]-x))
+d %>%
+  ggplot(aes(x, y, color=flight)) + 
+  geom_path(aes(group=flight)) + 
+  theme(legend.position="none")
+d %>%
+  ggplot(aes(t, mu_goal, color=flight)) + 
+  geom_line(aes(group=flight)) + 
+  theme(legend.position="none")
+```
+
+
 # Fitting a model to the data
 This section defines a Bayesian mixture of van Mises model. Set `echo=TRUE` to see the code in the knitted PDF.
 
 ```{r bmm-priors}
+# my_priors <- 
+#   c(
+#     prior(student_t(3, 0, 2.5), b, dpar = mu1),
+#     prior(student_t(3, 0, 2.5), b, dpar = mu2),
+#     prior(student_t(3, 0, 2.5), b, dpar = mu3),
+#     prior(student_t(3, 0, 2.5), b, dpar = mu4),
+#     prior(student_t(3, 0, 2.5), b, dpar = kappa1),
+#     prior(student_t(3, 0, 2.5), b, dpar = kappa2),
+#     prior(student_t(3, 0, 2.5), b, dpar = kappa3),
+#     prior(student_t(3, 0, 2.5), b, dpar = kappa4),
+#     prior(student_t(3, 0, 2.5), b, dpar = theta1),
+#     prior(student_t(3, 0, 2.5), b, dpar = theta2),
+#     prior(student_t(3, 0, 2.5), b, dpar = theta3))
 my_priors <- 
   c(
     prior(student_t(3, 0, 2.5), b, dpar = mu1),
     prior(student_t(3, 0, 2.5), b, dpar = mu2),
-    prior(student_t(3, 0, 2.5), b, dpar = mu3),
-    prior(student_t(3, 0, 2.5), b, dpar = mu4),
     prior(student_t(3, 0, 2.5), b, dpar = kappa1),
     prior(student_t(3, 0, 2.5), b, dpar = kappa2),
-    prior(student_t(3, 0, 2.5), b, dpar = kappa3),
-    prior(student_t(3, 0, 2.5), b, dpar = kappa4),
-    prior(student_t(3, 0, 2.5), b, dpar = theta1),
-    prior(student_t(3, 0, 2.5), b, dpar = theta2),
-    prior(student_t(3, 0, 2.5), b, dpar = theta3))
+    prior(student_t(3, 0, 2.5), b, dpar = theta1))
 ```
 
 ```{r bmm-fit}
@@ -416,34 +452,34 @@ m <-
         next_heading ~ 1,
         # Goal direction
         mu1 ~ 0 + offset(mu_goal),
-        kappa1 ~ 1, 
+        kappa1 ~ 1, # 1 + (1 | flight) # In case we assume that the kappa is different for each pigeon/flight.
         theta1 ~ 1,
         # Social direction
-        mu2 ~ 0 + offset(mu_other),
-        kappa2 ~ 1,
-        theta2 ~ 1,
+        # mu2 ~ 0 + offset(mu_other),
+        # kappa2 ~ 1,
+        # theta2 ~ 1,
         # Closest landmark direction
-        mu3 ~ 0 + offset(mu_memory),
-        kappa3 ~ 1,
-        theta3 ~ 1,
+        # mu3 ~ 0 + offset(mu_memory),
+        # kappa3 ~ 1,
+        # theta3 ~ 1,
         # Continuity direction
-        mu4 ~ 0 + offset(heading),
-        kappa4 ~ 1),
+        mu2 ~ 0 + offset(heading),
+        kappa2 ~ 1),
     data = 
       # TO DO: go to long format to use the data from both pigeons
-      d.sim,
+      d,
     family = 
       mixture(
         # Discussion of tan_half link which constrains the von Mises distribution to the interval [-pi, pi]
         # https://discourse.mc-stan.org/t/von-mises-distribution-tan-half-link/22182/2
         # Here, we're using the identity link since next_heading is already in radians
         von_mises(link = "identity", link_kappa = "log"), 
-        nmix = 4,
+        nmix = 2,
         order = "none"),
     sample_prior = "yes",
     # Save the file. NOTE that this MIGHT requires deleting the file if one wants the model to be refit
     # (though the refit "on_change" option should take care of that)
-    file = "../models/von-mises-4component-model", file_refit = "on_change",
+    file = "../models/von-mises-2component-model", file_refit = "on_change",
     chains = 4, warmup = 1000, iter = 2000, control = list(adapt_delta = .9),
     cores = 4, threads = threading(2))
 ```

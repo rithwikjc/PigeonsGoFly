@@ -10,7 +10,7 @@ if (length(new.packages)) {
   if ("papaja" %in% new.packages) remotes::install_github("crsh/papaja")
   new.packages <- setdiff(new.packages, c("remotes", "papaja"))
   
-  install.packages(new.packages)
+  install.packages(new.packages, repos="http://cran.rstudio.com/")
 }
 
 library(knitr)

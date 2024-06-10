@@ -1,0 +1,14 @@
+CommitHash:19a315c
+InputDirectory:RawData/figshare/data/raw
+OutputDirectory:ProcessedData/SpeedConvergence/B79
+BirdID:B79
+Releases:1
+ExclusionCriteria:speed_convergence
+ClipCriteria:speed
+ConvergenceWindow:300
+ConvergenceThreshold:1.0
+Radius:250
+ConvertToUTM: True
+ZeroTime:True
+RemoveDuplicates:True
+ComputeSpeed:False
