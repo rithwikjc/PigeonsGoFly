@@ -58,7 +58,7 @@ footnotelist      : no
 linenumbers       : yes
 numbersections    : true
 mask              : no
-draft             : no
+draft             : yes
 
 header-includes: 
  - \usepackage{sectsty}
@@ -67,29 +67,28 @@ header-includes:
  - \usepackage{tikz}
  - \usetikzlibrary{bayesnet}
  - \usepackage{booktabs}
- - \usepackage{siunitx}
- - \usepackage{soul}
- - \usepackage{tabto}
- - \usepackage{xcolor}
+ - \usepackage{subfig}
+ - \usepackage{tablefootnote}
+ - \usepackage{float}
  - \usepackage{placeins}
- - \setstcolor{red}
+ - \usepackage{xcolor}
  - \sectionfont{\color{black}}
  - \subsectionfont{\color{black}}
  - \subsubsectionfont{\color{black}}
  - \usepackage{setspace}\doublespacing
- - \usepackage{subfig}
  
 documentclass     : "apa6"
 classoption       : "man"
 fontsize          : 11pt
 output: 
   papaja::apa6_pdf:
+    extra_dependencies:
+      "subfig"
     latex_engine: xelatex
     includes:
       in_header: latex-stuff/header.tex
     keep_tex: yes
-    citation_package: biblatex
-    extra_dependencies: "subfig" 
+    # citation_package: default # natbib, biblatex
 always_allow_html: true
 ---
 
@@ -135,28 +134,363 @@ INCLUDE_TODO = T            # switch on/off to get to do list.
 ```
 
 \newpage 
-\brefsection
 \setcounter{page}{1}
 \setcounter{section}{0}
 
-```{r, child="section-introduction.Rmd"}
+<!-- Do NOT knit this document. It is part of a larger document. Instead knit the main document (my-apa-formatted-article) -->
+
+# Defining a generative model of flight paths
+For now, we're generated some fake flight data to illustrate the model. We'll replace this with real data later. Set `echo=TRUE` to see the code in the knitted PDF.
+
+```{r make-fake-data}
+# start and endpoints
+start <- c(0, 0)
+
+# weights (theta) and precision (kappa)
+theta <- c(goal = 0.19, social = 0.18, memory = 0.31)
+theta["continuity"] <- 1 - sum(theta)
+kappa <- c(goal = 1.54, social = 2.18, memory = 0, continuity = 8.69)
+
+n_experiment <- 1
+n_pigeon <- 1
+n_generation <- 1
+n_flight <- 12
+n_time <- 150
+n_landmark.mu <- 25
+
+# Functions
+get_next_landmark <- function(position, landmarks, goal, viewing_distance = 1.2) {
+  distance_to_goal <- sqrt(sum(position - goal)^2)
+  landmarks %<>%
+    mutate(
+      distance_to_position = sqrt(rowSums(landmarks[, c("x", "y")] - position)^2),
+      visible = distance_to_position < viewing_distance) %>%
+    filter(visible)
+  
+  if (nrow(landmarks) == 0) {
+    return(NA) 
+  } else { 
+    return(
+      landmarks %>%
+        filter(distance_to_goal == min(distance_to_goal)) %>%
+        pull(ID))
+  }
+}
+
+d.sim <- tibble()
+for (e in 1:n_experiment) { # experiments (different goal locations)
+  distance <- 10
+  finish.heading <- runif(1, -pi, pi)
+  finish <- c(cos(finish.heading), sin(finish.heading)) * distance
+  
+  # For now: constant speed within and across pigeons
+  velocity <- distance / n_time * 5
+  # When have pigeons arrived?
+  arrived_when.resolution <- distance / 50
+  
+  d <- 
+    crossing(
+      pigeon = 1:n_pigeon, generation = 1:n_generation, flight = 1:n_flight, time = 1:n_time, 
+      position.x = start[1], position.y = start[2], velocity = velocity,
+      position.partner.x = start[1], position.partner.y = start[2], velocity.partner = velocity,
+      goal.x = finish[1], goal.y = finish[2]) %>%
+    mutate(
+      # FOR NOW: assume pigeon's partners have flown equally often
+      flight.other = flight,
+      # initialize with random headings
+      heading = runif(1, -pi, pi),
+      heading.partner = runif(1, -pi, pi),
+      next_heading = runif(1, -pi, pi),
+      next_heading.partner = runif(1, -pi, pi))
+  
+  # Make some landmarks spread out over the space surrounding the start and goal
+  n_landmark <- rpois(1, n_landmark.mu)
+  d.landmarks <- 
+    tibble(ID = 1:n_landmark) %>%
+    mutate(
+      x = runif(n(), min(finish[1] * c(-1.3, 1.3)),  max(finish[1] * c(-0.5, 1.5))),
+      y = runif(n(), min(finish[2] * c(-1.3, 1.3)),  max(finish[2] * c(-0.5, 1.5))),
+      distance_to_goal = sqrt((x - finish[1])^2 + (y - finish[2])^2))
+  
+  for (p in 1:n_pigeon) { # pigeon
+    for (g in 1:n_generation) { # generation
+      for (f in 1:n_flight) { # flight within generation
+        message("Processing pigeon ", p, " in generation ",  g, " on flight ", f)
+        
+        for (t in 1:n_time) { # time within flight
+          d.sim %<>%
+            bind_rows(
+              within(
+                d[d$pigeon == p & d$generation == g & d$flight == f & d$time == t,],
+                {   
+                  if (time != 1) {
+                    # Get new position and heading given heading decision and velocity from previous time point
+                    heading = d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$next_heading
+                    position.x = d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$position.x + 
+                      d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$velocity * cos(heading)
+                    position.y = d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$position.y + 
+                      d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$velocity * sin(heading)
+                    
+                    heading.partner = d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$next_heading.partner
+                    position.partner.x = d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$position.partner.x + 
+                      d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$velocity.partner * cos(heading.partner)
+                    position.partner.y = d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$position.partner.y + 
+                      d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$velocity.partner * sin(heading.partner)
+                  }
+                  
+                  # Check whether pigeon has arrived at goal
+                  distance_to_goal = sqrt((goal.x - position.x)^2 + (goal.y - position.y)^2)
+                  distance_to_goal.partner = sqrt((goal.x - position.partner.x)^2 + (goal.y - position.partner.y)^2)
+                  if (distance_to_goal < arrived_when.resolution) {
+                    velocity = 0
+                  }
+                  if (distance_to_goal.partner < arrived_when.resolution) {
+                    velocity.partner = 0
+                  }
+                  
+                  # Get plans of pigeon for next time step
+                  # Get goal-dependent target heading
+                  mu_goal = atan2(goal.y - position.y, goal.x - position.x)
+                  
+                  # Estimate partner's next position and get other-dependent target heading
+                  position.expected_partner.x = position.partner.x + velocity.partner * cos(heading.partner)
+                  position.expected_partner.y = position.partner.y + velocity.partner * sin(heading.partner)
+                  mu_other = atan2(position.expected_partner.y - position.y, position.expected_partner.x - position.x)
+                  
+                  closest_landmark <- get_next_landmark(c(position.x, position.y), d.landmarks, c(goal.x, goal.y))
+                  if (!is.na(closest_landmark)) {
+                    position.closest_next_landmark.x <- d.landmarks[d.landmarks$ID == closest_landmark,]$x
+                    position.closest_next_landmark.y <- d.landmarks[d.landmarks$ID == closest_landmark,]$y
+                    mu_memory = atan2(position.closest_next_landmark.y - position.y, position.closest_next_landmark.x - position.x)
+                    
+                    # Need to implement more realistic memory + threshold distance at which landmarks can be seen
+                    # (with this memory model pigeons gets stuck on landmarks, when those landmarks are not conveniently
+                    # located in uniform steps along the start-to-goal line)
+                    kappa["memory"] <<- 
+                      case_when(
+                        flight == 1 ~ 0,
+                        flight == 2 ~ 0.27,
+                        flight == 3 ~ 0.58,
+                        flight == 4 ~ 1.11,
+                        flight == 5 ~ 2.18,
+                        TRUE ~ 6.78)
+                  } else {
+                    # when there is no visible landmark ignore memory
+                    mu_memory <- 0
+                    kappa["memory"] <<- 0
+                  }
+
+                  # Draw random samples from each of the von Mises distribution
+                  a_goal = rvon_mises(1, mu = mu_goal, kappa = kappa["goal"])
+                  a_other = rvon_mises(1, mu = mu_other, kappa = kappa["social"])
+                  a_memory = rvon_mises(1, mu = mu_memory, kappa = kappa["memory"])
+                  a_continuity = rvon_mises(1, mu = heading, kappa = kappa["continuity"])
+                  
+                  # Determine next heading
+                  next_heading = 
+                    atan2(
+                      theta["goal"] * sin(a_goal) +
+                        theta["social"] * sin(a_other) +
+                        theta["memory"] * sin(a_memory) +
+                        theta["continuity"] * sin(a_continuity),
+                      theta["goal"] * cos(a_goal) +
+                        theta["social"] * cos(a_other) +
+                        theta["memory"] * cos(a_memory) +
+                        theta["continuity"] * cos(a_continuity))
+                  
+                  # Same for partner
+                  mu_goal.partner = atan2(goal.y - position.partner.y, goal.x - position.partner.x)
+                  position.expected.x = position.x + velocity * cos(heading)
+                  position.expected.y = position.y + velocity * sin(heading)
+                  mu_other.partner = atan2(position.expected.y - position.partner.y, position.expected.x - position.partner.x)
+                  
+                  closest_landmark.partner <- get_next_landmark(c(position.partner.x, position.partner.y), d.landmarks, c(goal.x, goal.y))
+                  if (!is.na(closest_landmark.partner)) {
+                    position.partner.closest_next_landmark.x <- d.landmarks[d.landmarks$ID == closest_landmark.partner,]$x
+                    position.partner.closest_next_landmark.y <- d.landmarks[d.landmarks$ID == closest_landmark.partner,]$y
+                    mu_memory.partner <- 
+                      atan2(
+                        position.partner.closest_next_landmark.y - position.partner.y, 
+                        position.partner.closest_next_landmark.x - position.partner.x)
+                    
+                    # Need to implement more realistic memory + threshold distance at which landmarks can be seen
+                    # (with this memory model pigeons gets stuck on landmarks, when those landmarks are not conveniently
+                    # located in uniform steps along the start-to-goal line)
+                    kappa["memory.other"] <<- 
+                      case_when(
+                        flight == 1 ~ 0,
+                        flight == 2 ~ 0.27,
+                        flight == 3 ~ 0.58,
+                        flight == 4 ~ 1.11,
+                        flight == 5 ~ 2.18,
+                        TRUE ~ 6.78)
+                  } else {
+                    # when there is no visible landmark ignore memory
+                    mu_memory.partner <- 0
+                    kappa["memory.other"] <<- 0
+                  }
+                  
+                  a_goal.partner = rvon_mises(1, mu = mu_goal.partner, kappa = kappa["goal"])
+                  a_other.partner = rvon_mises(1, mu = mu_other.partner, kappa = kappa["social"])
+                  a_memory.partner = rvon_mises(1, mu = mu_memory.partner, kappa = kappa["memory.other"])
+                  a_continuity.partner = rvon_mises(1, mu = heading.partner, kappa = kappa["continuity"])
+                  next_heading.partner = 
+                    atan2(
+                      theta["goal"] * sin(a_goal.partner) +
+                        theta["social"] * sin(a_other.partner) +
+                        theta["memory"] * sin(a_memory.partner) +
+                        theta["continuity"] * sin(a_continuity.partner),
+                      theta["goal"] * cos(a_goal.partner) +
+                        theta["social"] * cos(a_other.partner) +
+                        theta["memory"] * cos(a_memory.partner) +
+                        theta["continuity"] * cos(a_continuity.partner))
+                  
+                  # Remove what we don't need
+                }))
+        }
+      }
+    }
+  }
+}
+``` 
+
+## Visualizing flight paths
+
+```{r plot-data, fig.show="animate", interval=1/10, fig.width=10, fig.height=10}
+d.sim %>%
+  ggplot() +
+  geom_path(aes(position.x, position.y, group = flight, color = as.factor(flight)), linetype = 1,) +
+  geom_path(aes(position.partner.x, position.partner.y, group = flight, color = as.factor(flight)), linetype = 2) +
+  annotate("point", x = start[1], y = start[2], color = "green", shape = 1, size = 2) +
+  annotate("point", x = finish[1], y = finish[2], color = "red", shape = 1, size = 2) +
+  geom_point(data = d.landmarks, aes(x, y), color = "black", shape = 4) +
+  scale_color_viridis_d("Flight") +
+  coord_fixed() +
+  facet_wrap(flight ~ pigeon)
+
+d.sim %>%
+  ggplot() +
+  geom_point(aes(position.x, position.y, group = flight, color = as.factor(flight)), shape = 2, size = .8) +
+  geom_point(aes(position.partner.x, position.partner.y, group = flight, color = as.factor(flight)), shape = 3, size = .8) +
+  annotate("point", x = start[1], y = start[2], color = "green", shape = 1, size = 2) +
+  annotate("point", x = finish[1], y = finish[2], color = "red", shape = 1, size = 2) +
+  geom_point(data = d.landmarks, aes(x, y), color = "black", shape = 4) +
+  scale_color_viridis_d("Flight") +
+  coord_fixed() +
+  facet_wrap(flight ~ pigeon) +
+  theme_minimal() +
+  transition_states(time) +
+  shadow_wake(wake_length = 1) +
+  labs(title = "Time: {closest_state}")
 ```
 
-```{r, child="section-references.Rmd"}
+# Fitting a model to the data
+This section defines a Bayesian mixture of van Mises model. Set `echo=TRUE` to see the code in the knitted PDF.
+
+```{r bmm-priors}
+my_priors <- 
+  c(
+    prior(student_t(3, 0, 2.5), b, dpar = mu1),
+    prior(student_t(3, 0, 2.5), b, dpar = mu2),
+    prior(student_t(3, 0, 2.5), b, dpar = mu3),
+    prior(student_t(3, 0, 2.5), b, dpar = mu4),
+    prior(student_t(3, 0, 2.5), b, dpar = kappa1),
+    prior(student_t(3, 0, 2.5), b, dpar = kappa2),
+    prior(student_t(3, 0, 2.5), b, dpar = kappa3),
+    prior(student_t(3, 0, 2.5), b, dpar = kappa4),
+    prior(student_t(3, 0, 2.5), b, dpar = theta1),
+    prior(student_t(3, 0, 2.5), b, dpar = theta2),
+    prior(student_t(3, 0, 2.5), b, dpar = theta3))
 ```
 
-\newpage
-\printbibliography
-\erefsection
+```{r bmm-fit}
+# From https://stackoverflow.com/questions/32370485/convert-radians-to-degree-degree-to-radians
+rad2deg <- function(rad) {(rad * 180) / (pi)}
+deg2rad <- function(deg) {(deg * pi) / (180)}
 
-\newpage
-\brefsection
-\setcounter{page}{1}
-\renewcommand{\thesection}{\S \arabic{section}}
-\renewcommand{\theHsection}{sisection. \arabic{section}}
-
-```{r, child="supplementary-information.Rmd"}
+# Useful discourse: https://discourse.mc-stan.org/t/modelling-circular-data-with-brms-gaussian-or-von-mises/26980/5
+m <- 
+  brm(
+    formula = 
+      bf(
+        next_heading ~ 1,
+        # Goal direction
+        mu1 ~ 0 + offset(mu_goal),
+        kappa1 ~ 1, 
+        theta1 ~ 1,
+        # Social direction
+        mu2 ~ 0 + offset(mu_other),
+        kappa2 ~ 1,
+        theta2 ~ 1,
+        # Closest landmark direction
+        mu3 ~ 0 + offset(mu_memory),
+        kappa3 ~ 1,
+        theta3 ~ 1,
+        # Continuity direction
+        mu4 ~ 0 + offset(heading),
+        kappa4 ~ 1),
+    data = 
+      # TO DO: go to long format to use the data from both pigeons
+      d.sim,
+    family = 
+      mixture(
+        # Discussion of tan_half link which constrains the von Mises distribution to the interval [-pi, pi]
+        # https://discourse.mc-stan.org/t/von-mises-distribution-tan-half-link/22182/2
+        # Here, we're using the identity link since next_heading is already in radians
+        von_mises(link = "identity", link_kappa = "log"), 
+        nmix = 4,
+        order = "none"),
+    sample_prior = "yes",
+    # Save the file. NOTE that this MIGHT requires deleting the file if one wants the model to be refit
+    # (though the refit "on_change" option should take care of that)
+    file = "../models/von-mises-4component-model", file_refit = "on_change",
+    chains = 4, warmup = 1000, iter = 2000, control = list(adapt_delta = .9),
+    cores = 4, threads = threading(2))
 ```
 
-\printbibliography
-\erefsection
+## Visualizing the posterior predictive
+Figure \@ref(fig:bmm-validation show) shows the posterior predictive check for the fitted model.
+
+(ref:bmm-validation) Posterior predictive of fitted model. The dashed line represents 45 degrees heading (it would make more sense to reformat the data to show heading relative to goal? ... MORE HERE
+
+```{r bmm-validation, fig.cap="(ref:bmm-validation)"}
+pp_check(m, ndraws = 100) +
+  geom_vline(xintercept = deg2rad(45), linetype = 2)
+```
+
+```{r bmm-results}
+summary(m)
+
+# Get the MAP parameter estimates
+f <-
+  fixef(m) %>%
+  as_tibble() %>%
+  bind_rows(tibble(Estimate = 0)) %>%
+  mutate(
+    PredictorType = c(rep("kappa", 4), rep("theta", 4)),
+    Predictor = 
+      c(
+        paste("kappa", c("goal", "social", "memory", "continuity"), sep = "_"), 
+        paste("theta", c("goal", "social", "memory", "continuity"), sep = "_")),
+    across(
+      c(Estimate, Q2.5, Q97.5),
+      ~ ifelse(PredictorType == "kappa", exp(.x), .x))) 
+
+# transform the theta weights from log-odds into probabilities
+f[5:8, "Estimate"] <- pmlogis_last(f[5:7, ]$Estimate)
+f[5:8, "Q2.5"] <- pmlogis_last(f[5:7, ]$Q2.5)
+f[5:8, "Q97.5"] <- pmlogis_last(f[5:7, ]$Q97.5)
+# NOTE: the final weight the upper/lower intervals are swapped (by necessity).
+f %<>% select(-Est.Error)
+
+print(f)
+```
+
+
+Adding one citation example [@burkner2019].
+
+```{r, child="section-references.Rmd", eval=T}
+```
+
+```{r, child="supplementary-information.Rmd", eval=T}
+```

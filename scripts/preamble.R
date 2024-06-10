@@ -13,6 +13,7 @@ if (length(new.packages)) {
   install.packages(new.packages)
 }
 
+library(knitr)
 library(papaja)             # APA formatted ms
 
 library(tidyverse)          # keeping things tidy
@@ -36,7 +37,7 @@ RESET_MODELS = F    # switch on/off whether models that have been stored in file
 chains <- 4
 
 # Get citation information
-r_refs(file = "latex-stuff/r-references.bib")
+r_refs(file = "latex-stuff/r-references.bib", append = FALSE)
 
 # plot formatting
 myGplot.defaults("paper")
