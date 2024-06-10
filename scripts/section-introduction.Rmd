@@ -16,11 +16,30 @@ n_pigeon <- 1
 n_generation <- 1
 n_flight <- 12
 n_time <- 150
-n_landmark.mu <- 15
+n_landmark.mu <- 25
+
+# Functions
+get_next_landmark <- function(position, landmarks, goal, viewing_distance = 1.2) {
+  distance_to_goal <- sqrt(sum(position - goal)^2)
+  landmarks %<>%
+    mutate(
+      distance_to_position = sqrt(rowSums(landmarks[, c("x", "y")] - position)^2),
+      visible = distance_to_position < viewing_distance) %>%
+    filter(visible)
+  
+  if (nrow(landmarks) == 0) {
+    return(NA) 
+  } else { 
+    return(
+      landmarks %>%
+        filter(distance_to_goal == min(distance_to_goal)) %>%
+        pull(ID))
+  }
+}
 
 d.sim <- tibble()
 for (e in 1:n_experiment) { # experiments (different goal locations)
-  distance <- 2
+  distance <- 10
   finish.heading <- runif(1, -pi, pi)
   finish <- c(cos(finish.heading), sin(finish.heading)) * distance
   
@@ -35,8 +54,10 @@ for (e in 1:n_experiment) { # experiments (different goal locations)
       position.x = start[1], position.y = start[2], velocity = velocity,
       position.partner.x = start[1], position.partner.y = start[2], velocity.partner = velocity,
       goal.x = finish[1], goal.y = finish[2]) %>%
-    # initialize with random headings
     mutate(
+      # FOR NOW: assume pigeon's partners have flown equally often
+      flight.other = flight,
+      # initialize with random headings
       heading = runif(1, -pi, pi),
       heading.partner = runif(1, -pi, pi),
       next_heading = runif(1, -pi, pi),
@@ -48,7 +69,8 @@ for (e in 1:n_experiment) { # experiments (different goal locations)
     tibble(ID = 1:n_landmark) %>%
     mutate(
       x = runif(n(), min(finish[1] * c(-1.3, 1.3)),  max(finish[1] * c(-0.5, 1.5))),
-      y = runif(n(), min(finish[2] * c(-1.3, 1.3)),  max(finish[2] * c(-0.5, 1.5))))
+      y = runif(n(), min(finish[2] * c(-1.3, 1.3)),  max(finish[2] * c(-0.5, 1.5))),
+      distance_to_goal = sqrt((x - finish[1])^2 + (y - finish[2])^2))
   
   for (p in 1:n_pigeon) { # pigeon
     for (g in 1:n_generation) { # generation
@@ -75,6 +97,7 @@ for (e in 1:n_experiment) { # experiments (different goal locations)
                     position.partner.y = d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$position.partner.y + 
                       d.sim[d.sim$pigeon == p & d.sim$generation == g & d.sim$flight == f & d.sim$time == t - 1,]$velocity.partner * sin(heading.partner)
                   }
+                  
                   # Check whether pigeon has arrived at goal
                   distance_to_goal = sqrt((goal.x - position.x)^2 + (goal.y - position.y)^2)
                   distance_to_goal.partner = sqrt((goal.x - position.partner.x)^2 + (goal.y - position.partner.y)^2)
@@ -94,22 +117,28 @@ for (e in 1:n_experiment) { # experiments (different goal locations)
                   position.expected_partner.y = position.partner.y + velocity.partner * sin(heading.partner)
                   mu_other = atan2(position.expected_partner.y - position.y, position.expected_partner.x - position.x)
                   
-                  # Find closest landmark and get landmark-dependent target heading
-                  position.closest_landmark.x = d.landmarks$x[which.min((d.landmarks$x - position.x)^2 + (d.landmarks$y - position.y)^2)]
-                  position.closest_landmark.y = d.landmarks$y[which.min((d.landmarks$x - position.x)^2 + (d.landmarks$y - position.y)^2)]
-                  mu_memory = atan2(position.closest_landmark.y - position.y, position.closest_landmark.x - position.x)
-                  
-                  # Need to implement more realistic memory + threshold distance at which landmarks can be seen
-                  # (with this memory model pigeons gets stuck on landmarks, when those landmarks are not conveniently
-                  # located in uniform steps along the start-to-goal line)
-                  kappa["memory"] <<- 
-                    case_when(
-                      time == 1 ~ 0,
-                      time == 2 ~ 0.27,
-                      time == 3 ~ 0.58,
-                      time == 4 ~ 1.11,
-                      time == 5 ~ 2.18,
-                      TRUE ~ 6.78)
+                  closest_landmark <- get_next_landmark(c(position.x, position.y), d.landmarks, c(goal.x, goal.y))
+                  if (!is.na(closest_landmark)) {
+                    position.closest_next_landmark.x <- d.landmarks[d.landmarks$ID == closest_landmark,]$x
+                    position.closest_next_landmark.y <- d.landmarks[d.landmarks$ID == closest_landmark,]$y
+                    mu_memory = atan2(position.closest_next_landmark.y - position.y, position.closest_next_landmark.x - position.x)
+                    
+                    # Need to implement more realistic memory + threshold distance at which landmarks can be seen
+                    # (with this memory model pigeons gets stuck on landmarks, when those landmarks are not conveniently
+                    # located in uniform steps along the start-to-goal line)
+                    kappa["memory"] <<- 
+                      case_when(
+                        flight == 1 ~ 0,
+                        flight == 2 ~ 0.27,
+                        flight == 3 ~ 0.58,
+                        flight == 4 ~ 1.11,
+                        flight == 5 ~ 2.18,
+                        TRUE ~ 6.78)
+                  } else {
+                    # when there is no visible landmark ignore memory
+                    mu_memory <- 0
+                    kappa["memory"] <<- 0
+                  }
 
                   # Draw random samples from each of the von Mises distribution
                   a_goal = rvon_mises(1, mu = mu_goal, kappa = kappa["goal"])
@@ -134,12 +163,36 @@ for (e in 1:n_experiment) { # experiments (different goal locations)
                   position.expected.x = position.x + velocity * cos(heading)
                   position.expected.y = position.y + velocity * sin(heading)
                   mu_other.partner = atan2(position.expected.y - position.partner.y, position.expected.x - position.partner.x)
-                  position.partner.closest_landmark.x = d.landmarks$x[which.min((d.landmarks$x - position.partner.x)^2 + (d.landmarks$y - position.partner.y)^2)]
-                  position.partner.closest_landmark.y = d.landmarks$y[which.min((d.landmarks$x - position.partner.x)^2 + (d.landmarks$y - position.partner.y)^2)]
-                  mu_memory.partner = atan2(position.partner.closest_landmark.y - position.partner.y, position.partner.closest_landmark.x - position.partner.x)
+                  
+                  closest_landmark.partner <- get_next_landmark(c(position.partner.x, position.partner.y), d.landmarks, c(goal.x, goal.y))
+                  if (!is.na(closest_landmark.partner)) {
+                    position.partner.closest_next_landmark.x <- d.landmarks[d.landmarks$ID == closest_landmark.partner,]$x
+                    position.partner.closest_next_landmark.y <- d.landmarks[d.landmarks$ID == closest_landmark.partner,]$y
+                    mu_memory.partner <- 
+                      atan2(
+                        position.partner.closest_next_landmark.y - position.partner.y, 
+                        position.partner.closest_next_landmark.x - position.partner.x)
+                    
+                    # Need to implement more realistic memory + threshold distance at which landmarks can be seen
+                    # (with this memory model pigeons gets stuck on landmarks, when those landmarks are not conveniently
+                    # located in uniform steps along the start-to-goal line)
+                    kappa["memory.other"] <<- 
+                      case_when(
+                        flight == 1 ~ 0,
+                        flight == 2 ~ 0.27,
+                        flight == 3 ~ 0.58,
+                        flight == 4 ~ 1.11,
+                        flight == 5 ~ 2.18,
+                        TRUE ~ 6.78)
+                  } else {
+                    # when there is no visible landmark ignore memory
+                    mu_memory.partner <- 0
+                    kappa["memory.other"] <<- 0
+                  }
+                  
                   a_goal.partner = rvon_mises(1, mu = mu_goal.partner, kappa = kappa["goal"])
                   a_other.partner = rvon_mises(1, mu = mu_other.partner, kappa = kappa["social"])
-                  a_memory.partner = rvon_mises(1, mu = mu_memory.partner, kappa = kappa["memory"])
+                  a_memory.partner = rvon_mises(1, mu = mu_memory.partner, kappa = kappa["memory.other"])
                   a_continuity.partner = rvon_mises(1, mu = heading.partner, kappa = kappa["continuity"])
                   next_heading.partner = 
                     atan2(
@@ -173,7 +226,6 @@ d.sim %>%
   coord_fixed() +
   facet_wrap(flight ~ pigeon)
 
-library(gganimate)
 d.sim %>%
   ggplot() +
   geom_point(aes(position.x, position.y, group = flight, color = as.factor(flight)), shape = 2, size = .8) +

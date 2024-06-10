@@ -10,3 +10,4 @@
 .RData
 .Ruserdata
 *_cache*
+scripts/latex-stuff/r-references.bib
