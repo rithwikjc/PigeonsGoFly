@@ -407,8 +407,13 @@ d %<>%
   group_by(flight) %>%
   mutate(
     next_heading=atan2(lead(y, 1)-y, lead(x, 1)-x),
-    heading=lag(next_heading, 1),
-    mu_goal=atan2(GOAL[2]-y, GOAL[1]-x))
+    heading=lag(next_heading, 1)) %>%
+  ungroup() %>%
+    mutate(
+      mu_goal=atan2(GOAL[2]-y, GOAL[1]-x),
+      distance_to_goal=sqrt((GOAL[1]-x)^2 + (GOAL[2]-y)^2),
+      distance_to_goal=(distance_to_goal-mean(distance_to_goal))/(2*sd(distance_to_goal))
+      )
 
 # Removing NAs manually
 d %<>% 
