@@ -445,8 +445,8 @@ This section defines a Bayesian mixture of van Mises model. Set `echo=TRUE` to s
 #     prior(student_t(3, 0, 2.5), b, dpar = theta3))
 my_priors <- 
   c(
-    prior(student_t(3, 0, 2.5), b, dpar = mu1),
-    prior(student_t(3, 0, 2.5), b, dpar = mu2),
+    # prior(student_t(3, 0, 2.5), b, dpar = mu1),
+    # prior(student_t(3, 0, 2.5), b, dpar = mu2),
     prior(student_t(3, 0, 2.5), b, dpar = kappa1),
     prior(student_t(3, 0, 2.5), b, dpar = kappa2),
     prior(student_t(3, 0, 2.5), b, dpar = theta1))
