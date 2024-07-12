@@ -402,6 +402,12 @@ d %<>%
     next_heading=atan2(lead(y, 1)-y, lead(x, 1)-x),
     heading=lag(next_heading, 1),
     mu_goal=atan2(GOAL[2]-y, GOAL[1]-x))
+
+# Removing NAs manually
+d %<>% 
+  filter(!is.na(heading)) %>%
+  filter(!is.na(next_heading))
+
 d %>%
   ggplot(aes(x, y, color=flight)) + 
   geom_path(aes(group=flight)) + 
