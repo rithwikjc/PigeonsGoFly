@@ -394,6 +394,13 @@ for (f in list.files("../data/SpeedConvergence/", pattern = "*.csv", full.names 
                      mutate(flight = f))
 }
 
+
+# Down sample data to 0.5Hz
+d %<>% 
+  group_by(flight) %>%
+  filter(row_number() %% 10 == 0) %>%
+  ungroup()
+
 d %<>% 
   rename(x = easting, y=northing, t=time) %>%
   select(x, y, t, flight) %>%
