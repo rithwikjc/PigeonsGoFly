@@ -1,0 +1,14 @@
+CommitHash:6b4e374
+InputDirectory:ProcessedData/SpeedConvergence/{bird_id}/
+OutputDirectory:ProcessedData/SpeedCircleEnd/S99
+BirdID:S99
+Releases:2
+ExclusionCriteria:circular
+ClipCriteria:None
+ConvergenceWindow:300
+ConvergenceThreshold:1.0
+Radius:200
+ConvertToUTM: True
+ZeroTime:True
+RemoveDuplicates:True
+ComputeSpeed:False
