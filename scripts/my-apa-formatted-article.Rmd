@@ -385,6 +385,7 @@ d.sim %>%
 ```
 
 # Load first flight data
+
 ```{r load-first-flights}
 GOAL <- c(616070, 5738228)
 d <- tibble()
@@ -424,6 +425,7 @@ d %>%
   ggplot(aes(x, y, color=flight)) + 
   geom_path(aes(group=flight)) + 
   theme(legend.position="none")
+
 d %>%
   ggplot(aes(t, mu_goal, color=flight)) + 
   geom_line(aes(group=flight)) + 
@@ -471,8 +473,8 @@ m <-
         # Goal direction
         mu1 ~ 0 + offset(mu_goal),
         # kappa1 ~ 1, # 1 + (1 | flight) # In case we assume that the kappa is different for each pigeon/flight.
-        kappa1 ~ 1 + distance_to_goal,
-        theta1 ~ 1 + (1 | flight),
+        kappa1 ~ 1 + s(distance_to_goal),
+        theta1 ~ 1 + s(distance_to_goal) + (1 | flight),
         # Social direction
         # mu2 ~ 0 + offset(mu_other),
         # kappa2 ~ 1,
@@ -499,7 +501,7 @@ m <-
     # Save the file. NOTE that this MIGHT requires deleting the file if one wants the model to be refit
     # (though the refit "on_change" option should take care of that)
     file = "../models/von-mises-2component-model", file_refit = "on_change",
-    chains = 4, warmup = 1000, iter = 2000, control = list(adapt_delta = .95),
+    chains = 4, warmup = 1000, iter = 2000, control = list(adapt_delta = .9),
     cores = 4, threads = threading(2))
 ```
 
@@ -509,13 +511,25 @@ Figure \@ref(fig:bmm-validation show) shows the posterior predictive check for t
 (ref:bmm-validation) Posterior predictive of fitted model. The dashed line represents 45 degrees heading (it would make more sense to reformat the data to show heading relative to goal? ... MORE HERE
 
 ```{r bmm-validation, fig.cap="(ref:bmm-validation)"}
-pp_check(m, ndraws = 100) +
-  geom_vline(xintercept = deg2rad(45), linetype = 2)
+# Get the average goal heading from the start position and add it to pp check plot
+START <- d %>%
+  group_by(flight) %>%
+  arrange(t) %>%
+  summarise(across(c(x, y), first)) %>%
+  summarise(across(c(x, y), mean)) %>%
+  as.numeric()
+
+pp_check(m, ndraws = 10) +
+  geom_vline(xintercept = atan2(GOAL[2]-START[2], GOAL[1]-START[1]), linetype = 2)
 ```
 
 ```{r bmm-results}
 summary(m)
+conditional_effects(m)
+plot(conditional_smooths(m), ask = F)
+```
 
+```{r}
 # Get the MAP parameter estimates
 f <-
   fixef(m) %>%
