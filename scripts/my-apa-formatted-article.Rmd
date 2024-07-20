@@ -390,7 +390,7 @@ d.sim %>%
 GOAL <- c(616070, 5738228)
 d <- tibble()
 
-for (f in list.files("../data/SpeedConvergence/", pattern = "*.csv", full.names = TRUE, recursive=TRUE)) {
+for (f in list.files("../data/SpeedCircleEnd/", pattern = "*.csv", full.names = TRUE, recursive=TRUE)) {
   d %<>% bind_rows(read_csv(f) %>% 
                      mutate(flight = f))
 }
