@@ -1,0 +1,14 @@
+CommitHash:daf9562
+InputDirectory:ProcessedData/Solo_Speed/B77
+OutputDirectory:ProcessedData/Solo_SpeedCircleEnd/B77
+BirdID:B77
+Releases:59
+ExclusionCriteria:circular
+ClipCriteria:None
+ConvergenceWindow:300
+ConvergenceThreshold:1.0
+Radius:200
+ConvertToUTM: True
+ZeroTime:True
+RemoveDuplicates:True
+ComputeSpeed:False

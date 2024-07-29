@@ -1,0 +1,14 @@
+CommitHash:daf9562
+InputDirectory:ProcessedData/Solo_Speed/S01
+OutputDirectory:ProcessedData/Solo_SpeedCircleEnd/S01
+BirdID:S01
+Releases:60
+ExclusionCriteria:circular
+ClipCriteria:None
+ConvergenceWindow:300
+ConvergenceThreshold:1.0
+Radius:200
+ConvertToUTM: True
+ZeroTime:True
+RemoveDuplicates:True
+ComputeSpeed:False

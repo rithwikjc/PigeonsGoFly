@@ -1,0 +1,14 @@
+CommitHash:daf9562
+InputDirectory:ProcessedData/Solo_Speed/P14
+OutputDirectory:ProcessedData/Solo_SpeedCircleEnd/P14
+BirdID:P14
+Releases:12
+ExclusionCriteria:circular
+ClipCriteria:None
+ConvergenceWindow:300
+ConvergenceThreshold:1.0
+Radius:200
+ConvertToUTM: True
+ZeroTime:True
+RemoveDuplicates:True
+ComputeSpeed:False

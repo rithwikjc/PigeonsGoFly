@@ -1,0 +1,14 @@
+CommitHash:d95ebfb
+InputDirectory:RawData/figshare/data/raw
+OutputDirectory:ProcessedData/Solo_Speed/B96
+BirdID:B96
+Releases:60
+ExclusionCriteria:speed_convergence
+ClipCriteria:speed_convergence
+ConvergenceWindow:300
+ConvergenceThreshold:1.0
+Radius:200
+ConvertToUTM: True
+ZeroTime:True
+RemoveDuplicates:True
+ComputeSpeed:False
